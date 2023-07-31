@@ -1,5 +1,5 @@
 {
-  "name": "mongopubsub",
+  "name": "@ofload/mongopubsub",
   "version": "1.0.0",
   "description": "Pub/sub for Node.js and MongoDB",
   "homepage": "http://github.com/vladotesanovic/mongopubsub",

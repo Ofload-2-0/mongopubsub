@@ -1,17 +1,14 @@
 import { EventEmitter } from 'events';
-import { Collection, Db, Document, WithId } from 'mongodb';
+import { ChangeStream, Collection, Db, Document, WithId } from 'mongodb';
 import internal from 'stream';
 
 export interface ChannelOptions {
   name?: string;
   mongoDb: Db;
-  size?: number;
-  max?: number;
+  capped?: boolean
 }
 
 interface InternalChannelOptions {
-  size: number;
-  max?: number;
   capped: boolean;
 }
 
@@ -22,27 +19,21 @@ export class Channel extends EventEmitter {
   private name: string;
   private db: Db;
   private collection!: Collection;
-  private tailableCursor:  internal.Readable & AsyncIterable<WithId<Document>>;
+  private tableWatchStream?: ChangeStream<any, any>;
+  private tailableCursor?: internal.Readable & AsyncIterable<WithId<Document>>;
 
   constructor(options: ChannelOptions) {
     super();
-    // console.log(`new Channel()`, {
-    //   options
-    // });
+
     this.db = options.mongoDb;
     this.options = {
-      capped: true,
-      size: options.size || 100000,
-      max: options.max
+      capped: options.capped,
     };
-    // console.log(`this.options`, this.options);
+
     this.closed = false;
     this.listening = null;
     this.name = options.name || 'mubsub';
     this.setMaxListeners(Infinity);
-    this.listen().then(() => {
-      // console.log(`Channel.constructor() listen()`, `now listening to pubsub collection`)
-    });
   }
 
   /**
@@ -53,7 +44,12 @@ export class Channel extends EventEmitter {
    */
   close(): Channel {
     this.closed = true;
-    this.tailableCursor.destroy();
+    if (this.options.capped) {
+      this.tailableCursor.destroy();
+    } else {
+      this.tableWatchStream.close();
+    }
+
     this.removeAllListeners();
     return this;
   }
@@ -76,7 +72,7 @@ export class Channel extends EventEmitter {
               event = 'message',
               callback
             }: { event?: string; callback: (data: any) => void }): { unsubscribe: () => void } {
-    // console.log(`Channel.subscribe()`, { event });
+
     this.on(event, callback);
     return {
       unsubscribe: () => {
@@ -86,18 +82,14 @@ export class Channel extends EventEmitter {
   }
 
   async latest(latest: Document): Promise<Document> {
-    // console.log(`Channel.latest()`, {
-    //   collection: !!this.collection,
-    //   latest
-    // });
+
     let doc: Document = await this.collection
       .find(latest ? { _id: latest._id } : {})
-      .sort({ $natural: -1 })
+      .sort({ $natural: 1 })
       .limit(1)
       .next();
-    // console.log(`Channel.latest() doc`, doc);
+
     if (!doc) {
-      // console.log(`Channel.latest() no documents found`, `initializing collection`);
       doc = { type: 'init' };
       await this.collection.insertOne(doc);
     }
@@ -105,47 +97,85 @@ export class Channel extends EventEmitter {
   }
 
   async listen(latest?: Document) {
-    // console.log(`Channel.listen()`);
     if (!this.collection) {
       await this.init();
     }
     latest = await this.latest(latest);
-    // console.log(`Channel.listen()`, `init tailable cursor`);
-    this.tailableCursor = this.collection
-      .find(
-        { _id: { $gt: latest._id } },
-        {
-          tailable: true,
-          awaitData: true,
-          sort: { $natural: 1 }
-        }
-      ).stream();
 
-    this.tailableCursor.on(`data`, (doc: Document) => {
-      // console.log(`tailableCursor.on('data')`, doc);
-      const { event, message } = doc;
-      if (event) {
-        // console.log(`Channel.listen() emit event`, doc);
-        this.emit(event, message);
-        this.emit('message', message);
-      }
-    });
-    this.tailableCursor.on(`error`, (error: any) => {
-      console.error(`tailableCursor.on('error')`, error);
-      this.emit('cursor-error', error);
-
-    });
-    this.tailableCursor.on(`end`, () => {
-      // console.log(`tailableCursor.on('end')`, `cursor ended`);
-      this.emit('cursor-end');
-    });
-    this.tailableCursor.on(`close`, () => {
-      // console.log(`tailableCursor.on('close')`, `Cursor closed`);
-      this.emit('cursor-close');
-    });
+    if (this.options.capped) {
+      this.useTailableCursor(latest);
+    } else {
+      this.useStream(latest)
+    }
 
     this.listening = true;
     this.emit('ready', this.listening);
+  }
+
+  private useStream(latest) {
+    this.tableWatchStream = this.collection
+      .watch([
+          {
+              $match: {operationType: 'insert',  'fullDocument._id': { $gt: latest._id } }
+          }
+      ]);
+        
+    this.tableWatchStream.on('change', (doc) => {
+        const { event, message } = doc.fullDocument;
+
+        if (event) {
+            this.emit(event, message);
+            this.emit('message', message);
+        }
+    });
+
+    this.tableWatchStream.on('error', (error) => {
+        console.error(`tableWatchStream.on('error')`, error);
+        this.emit('cursor-error', error);
+    });
+
+    this.tableWatchStream.on('end', () => {
+        this.emit('cursor-end');
+    });
+
+    this.tableWatchStream.on('close', () => {
+        this.emit('cursor-close');
+    });
+  }
+
+  private useTailableCursor(latest) {
+    this.tailableCursor = this.collection
+    .find(
+      { _id: { $gt: latest._id } },
+      {
+        tailable: true,
+        awaitData: true,
+        sort: { $natural: 1 }
+      }
+    ).stream();
+
+  this.tailableCursor.on(`data`, (doc: Document) => {
+    // console.log(`tailableCursor.on('data')`, doc);
+    const { event, message } = doc;
+    if (event) {
+      // console.log(`Channel.listen() emit event`, doc);
+      this.emit(event, message);
+      this.emit('message', message);
+    }
+  });
+  this.tailableCursor.on(`error`, (error: any) => {
+    console.error(`tailableCursor.on('error')`, error);
+    this.emit('cursor-error', error);
+
+  });
+  this.tailableCursor.on(`end`, () => {
+    // console.log(`tailableCursor.on('end')`, `cursor ended`);
+    this.emit('cursor-end');
+  });
+  this.tailableCursor.on(`close`, () => {
+    // console.log(`tailableCursor.on('close')`, `Cursor closed`);
+    this.emit('cursor-close');
+  });
   }
 
   private async init(): Promise<Collection> {
@@ -153,15 +183,22 @@ export class Channel extends EventEmitter {
     const collections = await this.db.collections();
     let collection = collections.find((c) => c.collectionName === this.name);
     if (!collection) {
-      // console.log(`Channel.init() Creating pubsub collection`, {
-      //   name: this.name,
-      //   options: this.options
-      // });
       collection = await this.db.createCollection(this.name, this.options);
-      // console.log(`Channel.init()`, `Successfully created pubsub collection`);
-    } else {
-      // console.log(`Channel.init()`, `${this.name} collection already exists`);
+
+      if (!this.options.capped) {
+        try {
+          await this.db.admin().command({
+            modifyChangeStreams: 1,
+            database: this.db.databaseName,
+            collection: this.name, 
+            enable: true
+          });
+        } catch (e) {
+          console.log(e);
+        }
+      }
     }
+
     this.collection = collection;
     this.emit('collection', this.collection);
     return collection;
