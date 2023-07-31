@@ -6,6 +6,8 @@ export interface ChannelOptions {
   name?: string;
   mongoDb: Db;
   capped?: boolean
+  size?: number
+  max?: number
 }
 
 interface InternalChannelOptions {
@@ -28,12 +30,18 @@ export class Channel extends EventEmitter {
     this.db = options.mongoDb;
     this.options = {
       capped: options.capped,
+      ...(options.capped && {
+        size: options.size || 100000,
+        max: options.max
+    })
     };
 
     this.closed = false;
     this.listening = null;
     this.name = options.name || 'mubsub';
     this.setMaxListeners(Infinity);
+
+    this.listen();
   }
 
   /**
@@ -145,37 +153,37 @@ export class Channel extends EventEmitter {
 
   private useTailableCursor(latest) {
     this.tailableCursor = this.collection
-    .find(
-      { _id: { $gt: latest._id } },
-      {
-        tailable: true,
-        awaitData: true,
-        sort: { $natural: 1 }
+      .find(
+        { _id: { $gt: latest._id } },
+        {
+          tailable: true,
+          awaitData: true,
+          sort: { $natural: 1 }
+        }
+      ).stream();
+
+    this.tailableCursor.on(`data`, (doc: Document) => {
+      // console.log(`tailableCursor.on('data')`, doc);
+      const { event, message } = doc;
+      if (event) {
+        // console.log(`Channel.listen() emit event`, doc);
+        this.emit(event, message);
+        this.emit('message', message);
       }
-    ).stream();
+    });
+    this.tailableCursor.on(`error`, (error: any) => {
+      console.error(`tailableCursor.on('error')`, error);
+      this.emit('cursor-error', error);
 
-  this.tailableCursor.on(`data`, (doc: Document) => {
-    // console.log(`tailableCursor.on('data')`, doc);
-    const { event, message } = doc;
-    if (event) {
-      // console.log(`Channel.listen() emit event`, doc);
-      this.emit(event, message);
-      this.emit('message', message);
-    }
-  });
-  this.tailableCursor.on(`error`, (error: any) => {
-    console.error(`tailableCursor.on('error')`, error);
-    this.emit('cursor-error', error);
-
-  });
-  this.tailableCursor.on(`end`, () => {
-    // console.log(`tailableCursor.on('end')`, `cursor ended`);
-    this.emit('cursor-end');
-  });
-  this.tailableCursor.on(`close`, () => {
-    // console.log(`tailableCursor.on('close')`, `Cursor closed`);
-    this.emit('cursor-close');
-  });
+    });
+    this.tailableCursor.on(`end`, () => {
+      // console.log(`tailableCursor.on('end')`, `cursor ended`);
+      this.emit('cursor-end');
+    });
+    this.tailableCursor.on(`close`, () => {
+      // console.log(`tailableCursor.on('close')`, `Cursor closed`);
+      this.emit('cursor-close');
+    });
   }
 
   private async init(): Promise<Collection> {
