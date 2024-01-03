@@ -156,6 +156,7 @@ export class Channel extends EventEmitter {
       .find(
         { _id: { $gt: latest._id } },
         {
+          noCursorTimeout: true,
           tailable: true,
           awaitData: true,
           sort: { $natural: 1 }
