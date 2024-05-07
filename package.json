@@ -1,6 +1,6 @@
 {
   "name": "@ofload/mongopubsub",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Pub/sub for Node.js and MongoDB",
   "homepage": "http://github.com/vladotesanovic/mongopubsub",
   "author": "Vlado Tešanović <vlado.tesanovic@gmail.com>",

@@ -64,7 +64,10 @@ export class Channel extends EventEmitter {
 
   async publish(params: { event: string; message: any }) {
     // console.log(`Channel publish()`, params);
-    return this.collection.insertOne(params);
+    return this.collection.insertOne({
+      ...params,
+      expireAt: new Date(Date.now() + 1296000000),
+    });
   }
 
   /**
