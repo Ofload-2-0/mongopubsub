@@ -193,15 +193,19 @@ export class Channel extends EventEmitter {
     let collection = collections.find((c) => c.collectionName === this.name);
     if (!collection) {
       collection = await this.db.createCollection(this.name, this.options);
-
       if (!this.options.capped) {
         try {
           await this.db.admin().command({
             modifyChangeStreams: 1,
             database: this.db.databaseName,
-            collection: this.name, 
-            enable: true
+            collection: this.name,
+            enable: true,
           });
+
+          await collection.createIndex(
+            { expireAt: 1 },
+            { expireAfterSeconds: 1296000 }
+          );
         } catch (e) {
           console.log(e);
         }
