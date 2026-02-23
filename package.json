@@ -1,6 +1,6 @@
 {
   "name": "@ofload/mongopubsub",
-  "version": "2.0.4",
+  "version": "3.0.1",
   "description": "Pub/sub for Node.js and MongoDB",
   "homepage": "http://github.com/vladotesanovic/mongopubsub",
   "author": "Vlado Tešanović <vlado.tesanovic@gmail.com>",
@@ -53,19 +53,19 @@
     "release:major": "npm version major && npm publish"
   },
   "peerDependencies": {
-    "mongodb": "^6.3.0"
+    "mongodb": "^7.0.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.1",
-    "@types/node": "16.11.7",
-    "@typescript-eslint/eslint-plugin": "^5.36.0",
-    "@typescript-eslint/parser": "^5.36.0",
-    "eslint": "8.22.0",
-    "mongoose": "^8.0.3",
-    "ts-jest": "^29.1.0",
-    "ts-node": "^10.9.1",
-    "tsc-watch": "^6.0.4",
-    "typescript": "^5.3.3"
+    "@types/jest": "^30.0.0",
+    "@types/node": "25.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "eslint": "10.0.1",
+    "mongoose": "^9.2.1",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "tsc-watch": "^7.2.0",
+    "typescript": "^5.9.3"
   },
   "files": [
     "dist/"
